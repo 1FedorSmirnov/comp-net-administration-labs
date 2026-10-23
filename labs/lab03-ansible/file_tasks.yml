@@ -1,0 +1,24 @@
+---
+- name: Work with test file
+  hosts: my_servers
+  connection: local
+
+  tasks:
+    - name: Create test file
+      copy:
+        content: "test_file_content\n"
+        dest: /root/test.txt
+
+    - name: Check test file content
+      command: grep -q '^test_file_content$' /root/test.txt
+      changed_when: false
+
+    - name: Change test file content
+      copy:
+        content: "updated_file_content\n"
+        dest: /root/test.txt
+
+    - name: Delete test file
+      file:
+        path: /root/test.txt
+        state: absent
