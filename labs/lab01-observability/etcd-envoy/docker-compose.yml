@@ -1,0 +1,79 @@
+services:
+  pg-master:
+    build: .
+    image: localhost/postgres:patroni-etcd # образ с Patroni для etcd
+    container_name: pg-master
+    restart: always
+    hostname: pg-master
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATA: '/var/lib/postgresql/data/pgdata'
+    expose:
+      - 8008
+    ports:
+      - 5433:5432
+    volumes:
+      - pg-master:/var/lib/postgresql/data
+    depends_on:
+      - etcd
+    command: patroni /postgres0.yml
+
+  pg-slave:
+    build: .
+    image: localhost/postgres:patroni-etcd
+    container_name: pg-slave
+    restart: always
+    hostname: pg-slave
+    expose:
+      - 8008
+    ports:
+      - 5434:5432
+    volumes:
+      - pg-slave:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATA: '/var/lib/postgresql/data/pgdata'
+    depends_on:
+      - etcd
+    command: patroni /postgres1.yml
+
+  # etcd вместо ZooKeeper: хранит ключ лидера и состояние кластера
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    container_name: etcd
+    restart: always
+    hostname: etcd
+    expose:
+      - 2379 # наружу не публикуем: Windows зарезервировала порты 2282-2381
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=etcd=http://etcd:2380
+    volumes:
+      - etcd-data:/etcd-data
+
+  # Envoy вместо HAProxy: единая точка входа, трафик идёт только на лидера
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    container_name: postgres_entrypoint
+    ports:
+      - 5432:5432 # подключение к БД
+      - 9901:9901 # админка Envoy (аналог страницы статистики HAProxy)
+    depends_on:
+      - pg-master
+      - pg-slave
+      - etcd
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+
+volumes:
+  pg-master:
+  pg-slave:
+  etcd-data:
